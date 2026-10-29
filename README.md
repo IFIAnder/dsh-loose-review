@@ -1,8 +1,13 @@
-# destructive-command-review
+# dsh-loose-review
 
-给「删除等破坏性命令」加一道**模型审查**闸门，并把它做成一个**独立的权限预设**
-**「🛡️ 自动审查（宽松）」**（key：`loose-review`）——在输入框下方的权限选择器里选中它才生效，
-不选就完全不介入，不会偷偷改你的「完全访问」行为。它同时是当前 profile 的**默认预设**。
+给「删除等破坏性命令」加一道**模型审查**闸门：命令真正执行之前，先让模型判断它会不会造成
+**严重且不可逆**的破坏，判定会破坏时交给你确认，或者直接拦下。
+
+另有一道执行期闸：命令被放行之后，如果它删掉了大量文件，插件会在运行途中把它中止，
+再问你要不要继续。
+
+它可以独立使用，也可以做成一个**独立的权限预设**——在输入框下方的权限选择器里多出一个
+「🛡️ 自动审查（宽松）」（key：`loose-review`），选中它才介入。做法见 [安装](#安装)。
 
 > **关于图标**：DSH 的权限选择器只给 4 个内置预设（read-only / workspace-write /
 > danger-full-access / auto）硬编码了 SVG 图标，自定义预设按设计「get none」。
@@ -37,7 +42,8 @@
 
 ## 行为
 
-0. **只在权限预设为「自动审查（宽松）」（`loose-review`）时介入**。选别的预设（包括「完全访问」）时插件完全不动。
+0. **受 `presets` 配置控制**。默认为空数组，即所有权限预设下都介入；填 `['loose-review']`
+   这类预设 key 则只在该预设下生效。当前预设不匹配时插件完全不动。
 1. 只接管 shell 类工具（默认 `bash` / `win_bash` / `pwsh` / `shell` / `exec` / `terminal` / `cmd`）的 `command` 参数。
 2. 命中 `allowPatterns` → 直接放行。
 3. 用内置破坏性规则预筛：**不命中 → 直接放行，零 token 零延迟**。
@@ -107,42 +113,60 @@
 
 ## 安装
 
-已安装在本 profile：
+需要带 `cordis.patch.yml` 插件机制的 DSH（当前桌面版满足）。
+
+### 方式一：`dsh plugin add`
+
+```bash
+dsh plugin add IFIAnder/dsh-loose-review
+```
+
+包内的 `cordis.patch.yml` 会注册插件本身。默认配置是**所有权限预设下都生效**，
+且只在真的会毁数据的命令上介入。
+
+### 方式二：手动挂载
+
+把仓库放到 profile 的插件目录下：
 
 ```
-~/.dsh/profiles/desktop/plugins/destructive-command-review/
+~/.dsh/profiles/<profile>/plugins/dsh-loose-review/
 ```
 
-`cordis.patch.yml` 里有两处：
+然后在 profile 的 `cordis.patch.yml` 里追加：
 
 ```yaml
-# ① 注册「自动审查（宽松）」这个权限预设
+- insert:
+    - id: destructive-command-review
+      name: './plugins/dsh-loose-review/index.js'
+      config:
+        presets: []   # 空 = 所有预设；填 ['loose-review'] 之类则只在该预设下生效
+```
+
+保存即热重载，通常 5–10 秒生效。
+
+### 可选：做成一个独立权限预设
+
+如果你想像官方的「自动审查」那样，把它变成选择器里的一个独立选项，在 profile 的
+`cordis.patch.yml` 里给 `permission` 服务加一个预设：
+
+```yaml
 - id: permission
   name: "@deepseek-ai/dsh-permission-presets"
   config:
     presets:
-      # … read-only / workspace-write / danger-full-access 保持原样 …
       loose-review:
         sandbox: danger-full-access
         approval: ask
         name: "🛡️ 自动审查（宽松）"
         description: 完全访问；删除等破坏性命令先由模型判断会不会造成不可逆破坏，判定破坏时询问你。
-    defaultPreset: danger-full-access
-
-# ② 挂载插件，并把它的作用范围限定在这个预设
-- insert:
-    - id: destructive-command-review
-      name: './plugins/destructive-command-review/index.js'
-      config:
-        presets: ['loose-review']
+    defaultPreset: loose-review
 ```
 
-改完保存即可 —— DSH 会监听 `cordis.patch.yml` 并热重载，通常 5–10 秒生效；
-若长时间没反应，重启 DSH。
+再把插件的 `presets` 设成 `['loose-review']`，它就只在这个预设下介入。
 
-> 改 `permission` 这种核心服务时，**不要连续快速保存多次**：多个重载事务叠在一起可能让插件树卡在
-> inactive 状态（表现为所有工具都报 `cannot get required service ... in inactive context`）。
-> 一次改完、等它重载完再动。真卡住了就重启 DSH，配置本身是合法的。
+> 改 `permission` 这种核心服务时，**不要连续快速保存多次**：多个重载事务叠在一起可能让
+> 插件树卡在 inactive 状态（表现为所有工具都报 `cannot get required service ... in
+> inactive context`）。一次改完、等它重载完再动。真卡住了就重启 DSH，配置本身是合法的。
 
 ## 卸载
 

@@ -11,7 +11,8 @@
   "files": [
     "index.js",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "cordis.patch.yml"
   ],
   "keywords": [
     "dsh",
@@ -19,8 +20,11 @@
     "cordis",
     "plugin",
     "permission",
+    "preset",
     "guardrail",
-    "safety"
+    "safety",
+    "destructive-command",
+    "approval"
   ],
   "author": "IFIAnder",
   "repository": {
@@ -30,5 +34,10 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
     "@deepseek-ai/schemastery": "*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   }
 }

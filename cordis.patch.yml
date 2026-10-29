@@ -1,0 +1,9 @@
+# 由 dsh-loose-review 提供，注册破坏性命令审查钩子。
+#
+# presets 为空数组 = 在所有权限预设下都生效（含 danger-full-access）。
+# 想只在某个预设下介入，就填它的 key，例如 ['loose-review']。
+- insert:
+    - id: destructive-command-review
+      name: dsh-loose-review
+      config:
+        presets: []
