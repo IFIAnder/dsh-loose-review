@@ -1,4 +1,4 @@
-# dsh-plugin-loose-review
+# dsh-loose-review
 
 给 DSH（DeepSeek Harness）的「删除等破坏性命令」加一道**模型审查**闸门，并把它做成一个
 **独立的权限预设**「🛡️ 自动审查（宽松）」（key：`loose-review`）——在输入框下方的
@@ -121,13 +121,13 @@ DSH 的 `danger-full-access` 预设把审批策略固定成 `never` —— 完�
 
 ## 安装
 
-把插件目录放到你的 DSH profile 下（目录名随意，下面以 `dsh-plugin-loose-review` 为例）：
+把插件目录放到你的 DSH profile 下（目录名随意，下面以 `dsh-loose-review` 为例）：
 
 ```
-~/.dsh/profiles/desktop/plugins/dsh-plugin-loose-review/
+~/.dsh/profiles/desktop/plugins/dsh-loose-review/
 ```
 
-Windows 上是 `%USERPROFILE%\.dsh\profiles\desktop\plugins\dsh-plugin-loose-review\`。
+Windows 上是 `%USERPROFILE%\.dsh\profiles\desktop\plugins\dsh-loose-review\`。
 
 `cordis.patch.yml` 里有两处：
 
@@ -148,7 +148,7 @@ Windows 上是 `%USERPROFILE%\.dsh\profiles\desktop\plugins\dsh-plugin-loose-rev
 # ② 挂载插件，并把它的作用范围限定在这个预设
 - insert:
     - id: destructive-command-review
-      name: './plugins/dsh-plugin-loose-review/index.js'
+      name: './plugins/dsh-loose-review/index.js'
       config:
         presets: ['loose-review']
 ```

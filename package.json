@@ -1,5 +1,5 @@
 {
-  "name": "dsh-plugin-loose-review",
+  "name": "dsh-loose-review",
   "version": "1.1.0",
   "description": "DSH 插件：「自动审查（宽松）」权限预设 —— 完全访问权限下，删除等破坏性命令先做一次窄模型审查；命令放行后若删掉大量文件还会执行期熔断。",
   "type": "module",
@@ -25,7 +25,7 @@
   "author": "IFIAnder",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/IFIAnder/dsh-plugin-loose-review.git"
+    "url": "git+https://github.com/IFIAnder/dsh-loose-review.git"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*"
