@@ -1,0 +1,15 @@
+# 插件运行时写入的文件：含你的命令历史与审查记录，绝不入库
+audit.jsonl
+loaded.json
+trace.log
+
+# 备份 / 临时文件
+*.bak
+*.bak-*
+*.log
+*.tmp
+
+# 依赖与系统噪音
+node_modules/
+.DS_Store
+Thumbs.db
