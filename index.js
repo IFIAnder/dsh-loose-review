@@ -46,6 +46,7 @@
 
 import { appendFileSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import z from '@deepseek-ai/schemastery'
 import { fileURLToPath } from 'node:url'
 
 /** Cordis 插件名（加载器诊断用）。 */
@@ -234,6 +235,21 @@ Correct examples:
 /** 判定破坏性但模型没给中文理由时的兜底文案，保证用户永远看到中文。 */
 const FALLBACK_REASON = '这条命令会删除或覆盖无法恢复的数据，且无法撤销'
 
+/**
+ * 组装最终使用的 system prompt。
+ *
+ * - `systemPrompt` 非空 → **完全替换**内置提示词（你负责让它仍然只输出
+ *   `{"destructive":bool,...}` 这个 JSON，否则解析会失败）；
+ * - `promptAppend` 非空 → 追加在内置提示词之后（推荐的扩展方式，不必重写全文）。
+ */
+function buildSystemPrompt(config) {
+  const override = typeof config.systemPrompt === 'string' ? config.systemPrompt.trim() : ''
+  if (override !== '') return override
+  const append = typeof config.promptAppend === 'string' ? config.promptAppend.trim() : ''
+  if (append === '') return REVIEW_POLICY
+  return `${REVIEW_POLICY}\n\nADDITIONAL INSTRUCTIONS FROM THE USER\n${append}`
+}
+
 /** 是否含中日韩表意文字——用来判断理由是不是中文。 */
 const CJK = /[\u3400-\u9fff]/
 
@@ -257,9 +273,28 @@ function withChineseReason(verdict) {
 // 配置
 // ───────────────────────────────────────────────────────────────────────────────
 
+/**
+ * 解开 `.volatile()` 字段的响应式包装。
+ *
+ * 声明了 Config schema 之后，带 `.volatile()` 的字段在运行时是 cosmokit 的响应式对象
+ * （真实取值要用 `.get()`），不是裸值。不解包的话，用户在设置表单里改了阈值也不会生效。
+ */
+function unwrapConfigValue(value) {
+  if (value !== null && typeof value === 'object' && typeof value.get === 'function') {
+    try {
+      return value.get()
+    } catch {
+      return value
+    }
+  }
+  return value
+}
+
 /** 把用户配置归一成内部结构，任何缺省/脏值都退化为安全默认。 */
 function normalizeConfig(raw) {
-  const c = raw !== null && typeof raw === 'object' ? raw : {}
+  const src = raw !== null && typeof raw === 'object' ? raw : {}
+  const c = {}
+  for (const key of Object.keys(src)) c[key] = unwrapConfigValue(src[key])
   const shellTools =
     Array.isArray(c.shellTools) && c.shellTools.length > 0
       ? c.shellTools.map(String).filter((n) => n.trim() !== '')
@@ -298,6 +333,8 @@ function normalizeConfig(raw) {
       ? c.guardIgnore.map(String).filter((s) => s !== '')
       : DEFAULT_GUARD_IGNORE,
     guardPaths: Array.isArray(c.guardPaths) ? c.guardPaths.map(String).filter((s) => s !== '') : [],
+    systemPrompt: typeof c.systemPrompt === 'string' ? c.systemPrompt.trim() : '',
+    promptAppend: typeof c.promptAppend === 'string' ? c.promptAppend.trim() : '',
     trace: c.trace === true,
   }
 }
@@ -536,7 +573,7 @@ async function reviewCommand(ctx, exec, config, command) {
       : timeout
   const options = {
     ...(route === undefined ? {} : route),
-    system: REVIEW_POLICY,
+    system: buildSystemPrompt(config),
     messages: [
       {
         role: 'user',
@@ -1105,6 +1142,90 @@ export function apply(ctx, rawConfig) {
 // 测试用导出（不影响插件加载）
 // ───────────────────────────────────────────────────────────────────────────────
 
+// ───────────────────────────────────────────────────────────────────────────────
+// 配置 schema
+//
+// 带 `.volatile()` 的字段会出现在 DSH 的设置表单里（由 @deepseek-ai/dsh-settings
+// 按 schema 派生），改完即时生效、并写进 profile 的 cordis.patch.yml。
+// 没声明的字段（shellTools / guardPaths 这类数组）仍然可以直接写 patch。
+// ───────────────────────────────────────────────────────────────────────────────
+
+export const Config = z.object({
+  enabled: z.boolean().default(true).volatile().description('总开关：关掉后插件完全不介入'),
+
+  guardDeletions: z
+    .boolean()
+    .default(true)
+    .volatile()
+    .description('执行期熔断：命令放行后如果删掉太多文件，当场中止'),
+
+  deletionThreshold: z
+    .number()
+    .step(1)
+    .min(1)
+    .max(100_000)
+    .default(200)
+    .volatile()
+    .description('熔断阈值：监控目录内净减少多少个文件就中止'),
+
+  guardIntervalMs: z
+    .number()
+    .step(1)
+    .min(50)
+    .max(5_000)
+    .default(250)
+    .volatile()
+    .description('熔断轮询间隔（毫秒），越小越灵敏也越费 CPU'),
+
+  onDestructive: z
+    .union([z.const('auto'), z.const('ask'), z.const('deny')])
+    .default('auto')
+    .volatile()
+    .description('判定破坏时：auto=按审批策略（ask 弹框 / never 拒绝）、ask=总是弹框、deny=总是拒绝'),
+
+  failureMode: z
+    .union([z.const('allow'), z.const('deny')])
+    .default('allow')
+    .volatile()
+    .description('审查失败（超时 / 没有可用模型）时：allow=放行、deny=拒绝'),
+
+  timeoutMs: z
+    .number()
+    .step(1)
+    .min(1_000)
+    .max(120_000)
+    .default(25_000)
+    .volatile()
+    .description('单次审查超时（毫秒）'),
+
+  cacheTtlMs: z
+    .number()
+    .step(1)
+    .min(0)
+    .max(3_600_000)
+    .default(300_000)
+    .volatile()
+    .description('同一命令判定的缓存时长（毫秒），0 = 不缓存'),
+
+  systemPrompt: z
+    .string()
+    .default('')
+    .volatile()
+    .description(
+      '完整替换内置审查提示词（留空 = 用内置）。自己写时要保证模型仍然只输出 {"destructive":bool,...}',
+    ),
+
+  promptAppend: z
+    .string()
+    .default('')
+    .volatile()
+    .description('追加到内置审查提示词之后——推荐的自定义方式，不必重写全文'),
+
+  audit: z.boolean().default(true).volatile().description('是否写 audit.jsonl 审计日志'),
+
+  trace: z.boolean().default(false).volatile().description('是否写 trace.log 诊断日志'),
+})
+
 export const __testing = {
   DANGER_RULES,
   REVIEW_POLICY,
@@ -1112,6 +1233,7 @@ export const __testing = {
   DEFAULT_GUARD_IGNORE,
   withChineseReason,
   finalAction,
+  buildSystemPrompt,
   countFiles,
   startDeletionGuard,
   makeExecuteGuard,

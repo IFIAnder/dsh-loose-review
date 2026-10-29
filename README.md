@@ -1,22 +1,8 @@
-# dsh-loose-review
+# destructive-command-review
 
-给 DSH（DeepSeek Harness）的「删除等破坏性命令」加一道**模型审查**闸门，并把它做成一个
-**独立的权限预设**「🛡️ 自动审查（宽松）」（key：`loose-review`）——在输入框下方的
-权限选择器里选中它才生效，不选就完全不介入，不会偷偷改你的「完全访问」行为。
-
-两道防线：
-
-1. **执行前**：命中破坏性规则模式的命令，先让模型判断「会不会造成严重不可逆破坏」。
-   判为破坏就弹审批，判为无害直接放行。
-2. **执行中**：命令放行之后仍然盯着工作目录，一旦删掉的文件超过阈值就当场 abort；
-   然后弹框问你要不要继续，同意就把命令重跑一遍。
-
-## 为什么需要它
-
-DSH 的 `danger-full-access` 预设把审批策略固定成 `never` —— 完全访问下任何命令都直接
-执行，没有任何闸门。本插件补上这一道，但刻意做得比官方
-`@deepseek-ai/dsh-experimental-auto-review`（Auto 预设）宽松得多：
-只发问一句「会不会毁数据」，不问授权、不问范围、不问生产环境。
+给「删除等破坏性命令」加一道**模型审查**闸门，并把它做成一个**独立的权限预设**
+**「🛡️ 自动审查（宽松）」**（key：`loose-review`）——在输入框下方的权限选择器里选中它才生效，
+不选就完全不介入，不会偷偷改你的「完全访问」行为。它同时是当前 profile 的**默认预设**。
 
 > **关于图标**：DSH 的权限选择器只给 4 个内置预设（read-only / workspace-write /
 > danger-full-access / auto）硬编码了 SVG 图标，自定义预设按设计「get none」。
@@ -121,13 +107,11 @@ DSH 的 `danger-full-access` 预设把审批策略固定成 `never` —— 完�
 
 ## 安装
 
-把插件目录放到你的 DSH profile 下（目录名随意，下面以 `dsh-loose-review` 为例）：
+已安装在本 profile：
 
 ```
-~/.dsh/profiles/desktop/plugins/dsh-loose-review/
+~/.dsh/profiles/desktop/plugins/destructive-command-review/
 ```
-
-Windows 上是 `%USERPROFILE%\.dsh\profiles\desktop\plugins\dsh-loose-review\`。
 
 `cordis.patch.yml` 里有两处：
 
@@ -143,12 +127,12 @@ Windows 上是 `%USERPROFILE%\.dsh\profiles\desktop\plugins\dsh-loose-review\`�
         approval: ask
         name: "🛡️ 自动审查（宽松）"
         description: 完全访问；删除等破坏性命令先由模型判断会不会造成不可逆破坏，判定破坏时询问你。
-    defaultPreset: loose-review   # 可选：把它设成默认预设
+    defaultPreset: danger-full-access
 
 # ② 挂载插件，并把它的作用范围限定在这个预设
 - insert:
     - id: destructive-command-review
-      name: './plugins/dsh-loose-review/index.js'
+      name: './plugins/destructive-command-review/index.js'
       config:
         presets: ['loose-review']
 ```
@@ -166,39 +150,65 @@ Windows 上是 `%USERPROFILE%\.dsh\profiles\desktop\plugins\dsh-loose-review\`�
 
 ## 配置
 
-全部可选，写在 `cordis.patch.yml` 该插件条目的 `config:` 下：
+全部可选，写在 `cordis.patch.yml` 该插件条目的 `config:` 下。改完保存即可热重载（约 5–10 秒）。
 
 ```yaml
 - insert:
     - id: destructive-command-review
-      name: './plugins/destructive-command-review/index.js'
+      name: './plugins/dsh-loose-review/index.js'
       config:
-        enabled: true
-        # 只在哪些权限预设下介入；[] = 所有预设都介入。
-        # 默认已设为只在本插件专属的「自动审查（宽松）」下生效。
-        presets: ['loose-review']
-        # 参与审查的工具名（默认已含 bash/win_bash/pwsh/shell/exec/terminal/cmd）
+        presets: ['loose-review']      # 只在哪些权限预设下介入；[] = 所有预设都介入
+
+        # ── 审查行为 ─────────────────────────────────────────────
+        onDestructive: auto            # auto=按审批策略 / ask=总是弹审批 / deny=总是拒绝
+        failureMode: allow             # 审查失败时：allow=放行 / deny=拒绝
+        timeoutMs: 25000               # 单次审查超时（毫秒）
+        cacheTtlMs: 300000             # 同命令判定缓存时长（毫秒）；0 = 不缓存
+        audit: true                    # 写 audit.jsonl 审计日志
+        trace: false                   # 写 trace.log 诊断日志
+
+        # ── 执行期熔断 ───────────────────────────────────────────
+        guardDeletions: true           # 总开关
+        deletionThreshold: 200         # 净减少多少个文件就中止
+        guardIntervalMs: 250           # 轮询间隔（毫秒），越小越灵敏也越费 CPU
+        guardScanBudget: 20000         # 单次统计最多访问多少个目录
+        guardIgnore: [node_modules, dist, build, out, coverage, .git, .cache]
+        guardPaths: []                 # 空 = 会话工作目录；可以给多个绝对路径
+
+        # ── 提示词 ───────────────────────────────────────────────
+        systemPrompt: ''               # 完整替换内置提示词（留空 = 用内置）
+        promptAppend: ''               # 追加到内置提示词之后（推荐）
+
+        # ── 规则与工具 ───────────────────────────────────────────
         shellTools: ['bash', 'win_bash', 'pwsh']
-        # 命中即放行的正则（优先于破坏性规则）
-        allowPatterns:
-          - 'rm\s+-rf\s+node_modules'
-          - 'git clean -n'
-        # 追加破坏性规则
-        extraDangerousPatterns:
-          - 'my-danger-cli\s+purge'
-        # 审查用模型；留空 = 跟随当前会话
-        provider: ''
+        allowPatterns: ['rm\s+-rf\s+node_modules']
+        extraDangerousPatterns: ['my-danger-cli\s+purge']
+        provider: ''                   # 审查用模型；留空 = 跟随当前会话
         model: ''
-        timeoutMs: 25000
-        # 审查失败时：allow（宽松，默认）| deny（严格）
-        failureMode: allow
-        # 判定破坏时：auto（ask 弹审批 / never 拒绝）| deny | ask
-        onDestructive: auto
-        cacheTtlMs: 300000
-        audit: true
-        maxCommandChars: 12000
-        skipWhenAutoPreset: true
 ```
+
+### 提示词怎么改
+
+最省事的是 `promptAppend`，它把内容接在内置提示词之后，不用重写全文：
+
+```yaml
+        promptAppend: |
+          这个项目里 build/ 和 dist/ 可以随便删，一律判 false。
+          任何 kubectl delete 都判 true，即使带 --dry-run。
+```
+
+`systemPrompt` 是**整篇替换**，只有你想完全自己写判据时才用。用它就必须保证模型仍然只输出
+`{"destructive": bool, ...}` 这个 JSON，否则解析失败（失败按 `failureMode` 处理）。
+
+### 关于「在设置界面里改」
+
+配置项在插件里声明成了 schema 字段（`export const Config`），常用项带 `.volatile()`，
+DSH 的 `@deepseek-ai/dsh-settings` 能按 schema 派生表单。
+
+但**客户端页面得由插件自己注册**——DSH 自带的配置页只有「子智能体 / 网页搜索 / Agent 循环 /
+终端」这几个官方插件，第三方插件要往侧栏「插件」页注册卡片，得自带一个 client 包
+（依赖 `@deepseek-ai/dsh-client-ui-primitives`，它没有作为独立包发布）。本插件没有附 client 包，
+所以这些配置目前通过 `cordis.patch.yml` 修改。
 
 ## 诊断
 
